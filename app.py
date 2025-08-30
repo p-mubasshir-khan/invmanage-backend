@@ -9,18 +9,19 @@ app = Flask(__name__)
 CORS(app)
 
 # ✅ MongoDB Connection
-app.config["MONGO_URI"] = os.getenv("MONGO_URI", "mongodb://localhost:27017/inventorydb")
-mongo = PyMongo(app)
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/inventorydb")
+client = MongoClient(MONGO_URI)
+db = client.get_default_database()  # gets "inventorydb"
 
 # Collections
-users_collection = mongo.db.users
-products_collection = mongo.db.products
-customers_collection = mongo.db.customers
-suppliers_collection = mongo.db.suppliers
-orders_collection = mongo.db.orders
+users_collection = db.users
+products_collection = db.products
+customers_collection = db.customers
+suppliers_collection = db.suppliers
+orders_collection = db.orders
 
 
-# ✅ Universal Serializer for ObjectId & datetime
+# ✅ Universal Serializer
 def serialize_doc(doc):
     """Recursively convert ObjectId and datetime so Flask can jsonify"""
     if isinstance(doc, list):
@@ -143,7 +144,7 @@ def dashboard():
         "suppliers": supplier_count,
         "orders": order_count,
     }
-    return jsonify(serialize_doc(stats)), 200
+    return jsonify(stats), 200
 
 
 # ==========================
@@ -156,7 +157,7 @@ def ai_insights():
         "low_stock": "Printer Ink",
         "recommendation": "Restock USB Cables soon",
     }
-    return jsonify(serialize_doc(insights)), 200
+    return jsonify(insights), 200
 
 
 # ==========================
