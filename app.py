@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient
-from werkzeug.security import generate_password_hash, check_password_hash
 import os
 
 # Flask app
@@ -24,13 +23,12 @@ users_collection = db["users"]
 products_collection = db["products"]
 
 # ===========================
-# Seed Admin User
+# Seed Admin User (plain text password)
 # ===========================
 if not users_collection.find_one({"username": "admin"}):
-    hashed_pw = generate_password_hash("password123")
     users_collection.insert_one({
         "username": "admin",
-        "password": hashed_pw
+        "password": "password123"
     })
     print("✅ Admin user created: admin / password123")
 else:
@@ -52,8 +50,7 @@ def register():
     if users_collection.find_one({"username": username}):
         return jsonify({"error": "User already exists"}), 400
 
-    hashed_pw = generate_password_hash(password)
-    users_collection.insert_one({"username": username, "password": hashed_pw})
+    users_collection.insert_one({"username": username, "password": password})
     return jsonify({"message": "User registered successfully"}), 201
 
 
@@ -66,11 +63,8 @@ def login():
     if not username or not password:
         return jsonify({"error": "Username and password required"}), 400
 
-    user = users_collection.find_one({"username": username})
+    user = users_collection.find_one({"username": username, "password": password})
     if not user:
-        return jsonify({"error": "Invalid username or password"}), 401
-
-    if not check_password_hash(user["password"], password):
         return jsonify({"error": "Invalid username or password"}), 401
 
     return jsonify({"message": "Login successful"}), 200
@@ -129,6 +123,14 @@ def delete_product(name):
         return jsonify({"error": "Product not found"}), 404
 
     return jsonify({"message": "Product deleted successfully"}), 200
+
+
+# ===========================
+# HEALTH CHECK
+# ===========================
+@app.route("/ping", methods=["GET"])
+def ping():
+    return jsonify({"status": "ok"}), 200
 
 
 # ===========================
