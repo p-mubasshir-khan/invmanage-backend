@@ -5,7 +5,8 @@ import os
 
 # Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://invmanage-frontend.vercel.app"], methods=["GET", "POST", "PUT", "DELETE"])
+
 
 # Secret Key
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "fallbacksecret")
