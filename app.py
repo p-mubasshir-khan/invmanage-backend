@@ -23,7 +23,7 @@ users_collection = db["users"]
 products_collection = db["products"]
 
 # ===========================
-# Seed Admin User (plain text password)
+# Seed Admin User
 # ===========================
 if not users_collection.find_one({"username": "admin"}):
     users_collection.insert_one({
@@ -38,7 +38,7 @@ else:
 # ===========================
 # AUTH ROUTES
 # ===========================
-@app.route("/register", methods=["POST"])
+@app.route("/api/register", methods=["POST"])
 def register():
     data = request.get_json()
     username = data.get("username")
@@ -54,7 +54,7 @@ def register():
     return jsonify({"message": "User registered successfully"}), 201
 
 
-@app.route("/login", methods=["POST"])
+@app.route("/api/login", methods=["POST"])
 def login():
     data = request.get_json()
     username = data.get("username")
@@ -73,13 +73,13 @@ def login():
 # ===========================
 # PRODUCT ROUTES (CRUD)
 # ===========================
-@app.route("/products", methods=["GET"])
+@app.route("/api/products", methods=["GET"])
 def get_products():
     products = list(products_collection.find({}, {"_id": 0}))
     return jsonify(products), 200
 
 
-@app.route("/products", methods=["POST"])
+@app.route("/api/products", methods=["POST"])
 def add_product():
     data = request.get_json()
     name = data.get("name")
@@ -94,7 +94,7 @@ def add_product():
     return jsonify({"message": "Product added successfully"}), 201
 
 
-@app.route("/products/<string:name>", methods=["PUT"])
+@app.route("/api/products/<string:name>", methods=["PUT"])
 def update_product(name):
     data = request.get_json()
     updated_data = {}
@@ -115,7 +115,7 @@ def update_product(name):
     return jsonify({"message": "Product updated successfully"}), 200
 
 
-@app.route("/products/<string:name>", methods=["DELETE"])
+@app.route("/api/products/<string:name>", methods=["DELETE"])
 def delete_product(name):
     result = products_collection.delete_one({"name": name})
 
@@ -128,7 +128,7 @@ def delete_product(name):
 # ===========================
 # HEALTH CHECK
 # ===========================
-@app.route("/ping", methods=["GET"])
+@app.route("/api/ping", methods=["GET"])
 def ping():
     return jsonify({"status": "ok"}), 200
 
