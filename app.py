@@ -1,172 +1,66 @@
 from flask import Flask, request, jsonify
-from pymongo import MongoClient
 from flask_cors import CORS
-from bson.objectid import ObjectId
-from datetime import datetime
+from pymongo import MongoClient
 import os
 
 app = Flask(__name__)
 CORS(app)
 
-# ✅ MongoDB Connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/inventorydb")
-client = MongoClient(MONGO_URI)
-db = client.get_default_database()  # gets "inventorydb"
+# Load MongoDB connection from environment variable
+mongo_uri = os.getenv("MONGO_URI")
+if not mongo_uri:
+    raise ValueError("MONGO_URI is not set in environment variables!")
 
-# Collections
-users_collection = db.users
-products_collection = db.products
-customers_collection = db.customers
-suppliers_collection = db.suppliers
-orders_collection = db.orders
+# Connect to MongoDB Atlas
+client = MongoClient(mongo_uri)
+db = client["invmanage"]   # use your database name
+customers_collection = db["customers"]
 
+# ---------------- ROUTES ---------------- #
 
-# ✅ Universal Serializer
-def serialize_doc(doc):
-    """Recursively convert ObjectId and datetime so Flask can jsonify"""
-    if isinstance(doc, list):
-        return [serialize_doc(d) for d in doc]
-    if isinstance(doc, dict):
-        new_doc = {}
-        for k, v in doc.items():
-            if isinstance(v, ObjectId):
-                new_doc[k] = str(v)
-            elif isinstance(v, datetime):
-                new_doc[k] = v.isoformat()
-            elif isinstance(v, dict):
-                new_doc[k] = serialize_doc(v)
-            elif isinstance(v, list):
-                new_doc[k] = [serialize_doc(i) for i in v]
-            else:
-                new_doc[k] = v
-        return new_doc
-    return doc
-
-
-# ==========================
-# ✅ Authentication
-# ==========================
-@app.route("/api/login", methods=["POST"])
-def login():
-    data = request.json
-    username = data.get("username")
-    password = data.get("password")
-
-    user = users_collection.find_one({"username": username, "password": password})
-    if user:
-        return jsonify({"success": True, "username": username}), 200
-    return jsonify({"success": False, "message": "Invalid username or password"}), 401
-
-
-# ==========================
-# ✅ Products
-# ==========================
-@app.route("/api/products", methods=["GET"])
-def get_products():
-    products = list(products_collection.find())
-    return jsonify(serialize_doc(products)), 200
-
-
-@app.route("/api/products", methods=["POST"])
-def add_product():
-    data = request.json
-    result = products_collection.insert_one(data)
-    return jsonify({"success": True, "id": str(result.inserted_id)}), 201
-
-
-# ==========================
-# ✅ Customers
-# ==========================
-@app.route("/api/customers", methods=["GET"])
-def get_customers():
-    customers = list(customers_collection.find())
-    return jsonify(serialize_doc(customers)), 200
-
-
-@app.route("/api/customers", methods=["POST"])
-def add_customer():
-    data = request.json
-    result = customers_collection.insert_one(data)
-    return jsonify({"success": True, "id": str(result.inserted_id)}), 201
-
-
-# ==========================
-# ✅ Suppliers
-# ==========================
-@app.route("/api/suppliers", methods=["GET"])
-def get_suppliers():
-    suppliers = list(suppliers_collection.find())
-    return jsonify(serialize_doc(suppliers)), 200
-
-
-@app.route("/api/suppliers", methods=["POST"])
-def add_supplier():
-    data = request.json
-    result = suppliers_collection.insert_one(data)
-    return jsonify({"success": True, "id": str(result.inserted_id)}), 201
-
-
-# ==========================
-# ✅ Orders
-# ==========================
-@app.route("/api/orders", methods=["GET"])
-def get_orders():
-    orders = list(orders_collection.find())
-    enriched_orders = []
-    for order in orders:
-        customer = customers_collection.find_one({"_id": order.get("customer_id")})
-        order["customer_name"] = customer["name"] if customer else "Unknown"
-        enriched_orders.append(order)
-    return jsonify(serialize_doc(enriched_orders)), 200
-
-
-@app.route("/api/orders", methods=["POST"])
-def add_order():
-    data = request.json
-    data["date"] = datetime.utcnow()
-    result = orders_collection.insert_one(data)
-    return jsonify({"success": True, "id": str(result.inserted_id)}), 201
-
-
-# ==========================
-# ✅ Dashboard
-# ==========================
-@app.route("/api/dashboard", methods=["GET"])
-def dashboard():
-    product_count = products_collection.count_documents({})
-    customer_count = customers_collection.count_documents({})
-    supplier_count = suppliers_collection.count_documents({})
-    order_count = orders_collection.count_documents({})
-
-    stats = {
-        "products": product_count,
-        "customers": customer_count,
-        "suppliers": supplier_count,
-        "orders": order_count,
-    }
-    return jsonify(stats), 200
-
-
-# ==========================
-# ✅ AI Insights (Mock Example)
-# ==========================
-@app.route("/api/ai-insights", methods=["GET"])
-def ai_insights():
-    insights = {
-        "top_selling": "Laptop",
-        "low_stock": "Printer Ink",
-        "recommendation": "Restock USB Cables soon",
-    }
-    return jsonify(insights), 200
-
-
-# ==========================
-# ✅ Health Check
-# ==========================
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
-    return jsonify({"status": "Backend is running with MongoDB!"}), 200
+    return jsonify({"message": "Flask + MongoDB backend is running!"})
+
+# Add customer
+@app.route("/customers", methods=["POST"])
+def add_customer():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    result = customers_collection.insert_one(data)
+    return jsonify({"message": "Customer added", "id": str(result.inserted_id)}), 201
+
+# Get all customers
+@app.route("/customers", methods=["GET"])
+def get_customers():
+    customers = list(customers_collection.find({}, {"_id": 0}))
+    return jsonify(customers), 200
+
+# Update customer
+@app.route("/customers/<string:name>", methods=["PUT"])
+def update_customer(name):
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    result = customers_collection.update_one({"name": name}, {"$set": data})
+    if result.matched_count == 0:
+        return jsonify({"error": "Customer not found"}), 404
+    
+    return jsonify({"message": "Customer updated"}), 200
+
+# Delete customer
+@app.route("/customers/<string:name>", methods=["DELETE"])
+def delete_customer(name):
+    result = customers_collection.delete_one({"name": name})
+    if result.deleted_count == 0:
+        return jsonify({"error": "Customer not found"}), 404
+    
+    return jsonify({"message": "Customer deleted"}), 200
 
 
+# ---------------- RUN ---------------- #
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
