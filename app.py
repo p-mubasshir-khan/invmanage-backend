@@ -76,6 +76,10 @@ def login():
 @app.route("/api/products", methods=["GET"])
 def get_products():
     products = list(products_collection.find({}, {"_id": 0}))
+    # Ensure reorderThreshold key exists for frontend
+    for p in products:
+        if "reorderThreshold" not in p:
+            p["reorderThreshold"] = None
     return jsonify(products), 200
 
 @app.route("/api/products", methods=["POST"])
@@ -84,11 +88,17 @@ def add_product():
     name = data.get("name")
     price = data.get("price")
     quantity = data.get("quantity")
+    reorder_threshold = data.get("reorderThreshold")
 
     if not name or price is None or quantity is None:
         return jsonify({"error": "Name, price, and quantity required"}), 400
 
-    product = {"name": name, "price": price, "quantity": quantity}
+    product = {
+        "name": name,
+        "price": price,
+        "quantity": quantity,
+        "reorderThreshold": reorder_threshold
+    }
     products_collection.insert_one(product)
     return jsonify({"message": "Product added successfully"}), 201
 
@@ -101,6 +111,8 @@ def update_product(name):
         updated_data["price"] = data["price"]
     if "quantity" in data:
         updated_data["quantity"] = data["quantity"]
+    if "reorderThreshold" in data:
+        updated_data["reorderThreshold"] = data["reorderThreshold"]
 
     if not updated_data:
         return jsonify({"error": "No fields to update"}), 400
