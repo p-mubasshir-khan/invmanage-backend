@@ -80,16 +80,16 @@ def login():
 @app.route('/api/products', methods=['GET'])
 def get_products():
     products = list(products_collection.find())
-    return jsonify([serialize_id(product) for product in products])
+    return jsonify([serialize_id(p) for p in products])
 
 @app.route('/api/products', methods=['POST'])
 def create_product():
     data = request.get_json()
     product = {
         'name': data['name'],
-        'quantity': data['quantity'],
-        'price': data['price'],
-        'reorder_threshold': data['reorder_threshold'],
+        'quantity': int(data['quantity']),
+        'price': float(data['price']),
+        'reorder_threshold': int(data['reorder_threshold']),
         'created_at': datetime.utcnow()
     }
     result = products_collection.insert_one(product)
@@ -101,24 +101,16 @@ def update_product(product_id):
     object_id = safe_object_id(product_id)
     if not object_id:
         return jsonify({'error': 'Invalid product ID'}), 400
-    
     data = request.get_json()
     update_data = {
         'name': data['name'],
-        'quantity': data['quantity'],
-        'price': data['price'],
-        'reorder_threshold': data['reorder_threshold']
+        'quantity': int(data['quantity']),
+        'price': float(data['price']),
+        'reorder_threshold': int(data['reorder_threshold'])
     }
-    
-    result = products_collection.update_one(
-        {'_id': object_id},
-        {'$set': update_data}
-    )
-    
+    result = products_collection.update_one({'_id': object_id}, {'$set': update_data})
     if result.matched_count == 0:
         return jsonify({'error': 'Product not found'}), 404
-    
-    # Get updated product
     updated_product = products_collection.find_one({'_id': object_id})
     return jsonify(serialize_id(updated_product))
 
@@ -127,43 +119,31 @@ def delete_product(product_id):
     object_id = safe_object_id(product_id)
     if not object_id:
         return jsonify({'error': 'Invalid product ID'}), 400
-    
     result = products_collection.delete_one({'_id': object_id})
-    
     if result.deleted_count == 0:
         return jsonify({'error': 'Product not found'}), 404
-    
     return jsonify({'message': 'Product deleted successfully'})
 
 # Order routes
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
     orders = list(orders_collection.find().sort('created_at', -1))
-    
-    # Get all product IDs and customer IDs for efficient lookup
-    product_ids = [order['product_id'] for order in orders]
+    product_ids = [o['product_id'] for o in orders]
     products = {str(p['_id']): p for p in products_collection.find({'_id': {'$in': product_ids}})}
-    
-    # Get customer mappings
-    order_ids = [order['_id'] for order in orders]
+    order_ids = [o['_id'] for o in orders]
     customer_mappings = list(order_customers_collection.find({'order_id': {'$in': order_ids}}))
-    customer_ids = [mapping['customer_id'] for mapping in customer_mappings]
+    customer_ids = [m['customer_id'] for m in customer_mappings]
     customers = {str(c['_id']): c for c in customers_collection.find({'_id': {'$in': customer_ids}})}
-    
-    # Build order_id to customer_id mapping
-    order_to_customer = {str(mapping['order_id']): str(mapping['customer_id']) for mapping in customer_mappings}
-    
-    # Enrich orders with product and customer info
+    order_to_customer = {str(m['order_id']): str(m['customer_id']) for m in customer_mappings}
     enriched_orders = []
     for order in orders:
         order_str_id = str(order['_id'])
         product = products.get(str(order['product_id']))
         customer_id = order_to_customer.get(order_str_id)
         customer = customers.get(customer_id) if customer_id else None
-        
-        enriched_order = {
+        enriched_orders.append({
             'id': order_str_id,
-            '_id': order_str_id,  # Keep both for frontend compatibility
+            '_id': order_str_id,
             'product_id': str(order['product_id']),
             'product_name': product['name'] if product else 'Unknown Product',
             'quantity': order['quantity'],
@@ -171,74 +151,56 @@ def get_orders():
             'created_at': order['created_at'].isoformat(),
             'customer_id': customer_id,
             'customer_name': customer['name'] if customer else None
-        }
-        enriched_orders.append(enriched_order)
-    
+        })
     return jsonify(enriched_orders)
 
 @app.route('/api/orders', methods=['POST'])
 def create_order():
     data = request.get_json()
-    
-    product_id_str = data.get('product_id')
-    if not product_id_str:
-        return jsonify({'error': 'Product ID is required'}), 400
-    
-    product_id = safe_object_id(product_id_str)
+    product_id = safe_object_id(data.get('product_id'))
     if not product_id:
         return jsonify({'error': 'Invalid product ID'}), 400
-    
     product = products_collection.find_one({'_id': product_id})
     if not product:
         return jsonify({'error': 'Product not found'}), 404
-    
-    if product['quantity'] < data['quantity']:
+
+    order_quantity = int(data['quantity'])
+    if product['quantity'] < order_quantity:
         return jsonify({'error': 'Insufficient stock'}), 400
-    
-    # Calculate total amount
-    total_amount = product['price'] * data['quantity']
-    
-    # Create order
+
+    total_amount = product['price'] * order_quantity
     order = {
         'product_id': product_id,
-        'quantity': data['quantity'],
+        'quantity': order_quantity,
         'total_amount': total_amount,
         'created_at': datetime.utcnow()
     }
-    
     result = orders_collection.insert_one(order)
     order['_id'] = result.inserted_id
-    
-    # Update product quantity
-    products_collection.update_one(
-        {'_id': product_id},
-        {'$inc': {'quantity': -data['quantity']}}
-    )
-    
+
+    # Decrement stock
+    products_collection.update_one({'_id': product_id}, {'$inc': {'quantity': -order_quantity}})
+
     # Optional customer link
     customer_id_str = data.get('customer_id')
+    customer = None
     if customer_id_str:
         customer_id = safe_object_id(customer_id_str)
         if customer_id:
             customer = customers_collection.find_one({'_id': customer_id})
             if customer:
-                link = {
+                order_customers_collection.insert_one({
                     'order_id': order['_id'],
                     'customer_id': customer_id,
                     'created_at': datetime.utcnow()
-                }
-                order_customers_collection.insert_one(link)
-        else:
-            # Invalid customer ID, continue without linking
-            pass
-    
-    # Build response
+                })
+
+    # Enriched response
     resp = serialize_id(order)
-    if customer_id_str:
+    resp['product_name'] = product['name']
+    if customer:
         resp['customer_id'] = customer_id_str
-        if customer:
-            resp['customer_name'] = customer['name']
-    
+        resp['customer_name'] = customer['name']
     return jsonify(resp), 201
 
 @app.route('/api/orders/<order_id>', methods=['DELETE'])
@@ -246,24 +208,47 @@ def delete_order(order_id):
     object_id = safe_object_id(order_id)
     if not object_id:
         return jsonify({'error': 'Invalid order ID'}), 400
-    
     order = orders_collection.find_one({'_id': object_id})
     if not order:
         return jsonify({'error': 'Order not found'}), 404
-    
+
     # Restore product quantity
-    products_collection.update_one(
-        {'_id': order['product_id']},
-        {'$inc': {'quantity': order['quantity']}}
-    )
-    
-    # Delete customer link if exists
+    products_collection.update_one({'_id': order['product_id']}, {'$inc': {'quantity': order['quantity']}})
     order_customers_collection.delete_one({'order_id': object_id})
-    
-    # Delete order
     orders_collection.delete_one({'_id': object_id})
-    
     return jsonify({'message': 'Order deleted successfully'})
+
+# ------------------ DASHBOARD ------------------
+@app.route('/api/dashboard', methods=['GET'])
+def get_dashboard():
+    total_products = products_collection.count_documents({})
+    low_stock_products = products_collection.count_documents({'$expr': {'$lt': ['$quantity', '$reorder_threshold']}})
+    recent_orders = list(orders_collection.find().sort('created_at', -1).limit(5))
+    enriched_recent_orders = []
+    for order in recent_orders:
+        product = products_collection.find_one({'_id': order['product_id']})
+        enriched_recent_orders.append({
+            'id': str(order['_id']),
+            'product_name': product['name'] if product else 'Unknown Product',
+            'quantity': order['quantity'],
+            'total_amount': order['total_amount'],
+            'created_at': order['created_at'].isoformat()
+        })
+    return jsonify({
+        'total_products': total_products,
+        'low_stock_count': low_stock_products,
+        'recent_orders': enriched_recent_orders
+    })
+
+@app.route('/api/dashboard/low-stock', methods=['GET'])
+def get_low_stock_products():
+    products = list(products_collection.find({'$expr': {'$lt': ['$quantity', '$reorder_threshold']}}))
+    return jsonify([{
+        'id': str(p['_id']),
+        'name': p['name'],
+        'quantity': p['quantity'],
+        'reorder_threshold': p['reorder_threshold']
+    } for p in products])
 
 # Dashboard routes
 @app.route('/api/dashboard', methods=['GET'])
