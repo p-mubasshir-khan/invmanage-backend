@@ -16,6 +16,7 @@ app = Flask(__name__)
 # CORS configuration - allow both development and production origins
 CORS(app, origins=[
     "https://invmanage-frontend.vercel.app",
+    "https://invmanage-frontend.vercel.app/",
     "http://localhost:3000",
     "http://localhost:5000"
 ], methods=["GET", "POST", "PUT", "DELETE"])
@@ -61,8 +62,8 @@ def safe_object_id(id_value):
         return None
 
 # Hardcoded admin credentials
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "password123"
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "password123")
 
 # Authentication
 @app.route('/api/login', methods=['POST'])
@@ -192,9 +193,6 @@ def create_order():
     if not product:
         return jsonify({'error': 'Product not found'}), 404
     
-    if product['quantity'] < data['quantity']:
-        return jsonify({'error': 'Insufficient stock'}), 400
-    
     # Calculate total amount
     total_amount = product['price'] * data['quantity']
     
@@ -221,29 +219,9 @@ def create_order():
         {'$inc': {'quantity': -order_quantity}}
     )
 
-    # Enrich response
-    product = products_collection.find_one({'_id': product_id})
-    resp = serialize_id(order)
-    resp['product_name'] = product['name']
-    if customer_id_str and customer:
-        resp['customer_id'] = customer_id_str
-        resp['customer_name'] = customer['name']
-
-    return jsonify(resp), 201
-
-    order = {
-        'product_id': product_id,
-        'quantity': data['quantity'],
-        'total_amount': total_amount,
-        'created_at': datetime.utcnow()
-    }
-    
-    result = orders_collection.insert_one(order)
-    order['_id'] = result.inserted_id
-    
-    
     # Optional customer link
     customer_id_str = data.get('customer_id')
+    customer = None
     if customer_id_str:
         customer_id = safe_object_id(customer_id_str)
         if customer_id:
@@ -255,17 +233,15 @@ def create_order():
                     'created_at': datetime.utcnow()
                 }
                 order_customers_collection.insert_one(link)
-        else:
-            # Invalid customer ID, continue without linking
-            pass
-    
-    # Build response
+
+    # Enrich response
+    product = products_collection.find_one({'_id': product_id})
     resp = serialize_id(order)
-    if customer_id_str:
+    resp['product_name'] = product['name']
+    if customer_id_str and customer:
         resp['customer_id'] = customer_id_str
-        if customer:
-            resp['customer_name'] = customer['name']
-    
+        resp['customer_name'] = customer['name']
+
     return jsonify(resp), 201
 
 @app.route('/api/orders/<order_id>', methods=['DELETE'])
@@ -520,7 +496,7 @@ def get_supplier(supplier_id):
         return jsonify({'error': 'Invalid supplier ID'}), 400
     
     supplier = suppliers_collection.find_one({'_id': object_id})
-    if not supplier:
+    if not object_id:
         return jsonify({'error': 'Supplier not found'}), 404
     
     return jsonify(serialize_id(supplier))
@@ -576,5 +552,10 @@ def delete_supplier(supplier_id):
     
     return jsonify({'message': 'Supplier deleted successfully'})
 
+# Health check endpoint for deployment
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'healthy', 'message': 'Inventory Management API is running'})
 
+if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
