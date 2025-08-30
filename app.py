@@ -45,6 +45,9 @@ def serialize_id(obj):
         for key, value in obj.items():
             if isinstance(value, datetime):
                 obj[key] = value.isoformat()
+            elif isinstance(value, ObjectId):
+                # Handle ObjectId fields that are not _id
+                obj[key] = str(value)
             elif isinstance(value, dict):
                 serialize_id(value)
     return obj
@@ -179,70 +182,75 @@ def get_orders():
 
 @app.route('/api/orders', methods=['POST'])
 def create_order():
-    data = request.get_json()
-    
-    product_id_str = data.get('product_id')
-    if not product_id_str:
-        return jsonify({'error': 'Product ID is required'}), 400
-    
-    product_id = safe_object_id(product_id_str)
-    if not product_id:
-        return jsonify({'error': 'Invalid product ID'}), 400
-    
-    product = products_collection.find_one({'_id': product_id})
-    if not product:
-        return jsonify({'error': 'Product not found'}), 404
-    
-    # Calculate total amount
-    total_amount = product['price'] * data['quantity']
-    
-    # Create order
-    order_quantity = int(data['quantity'])
+    try:
+        data = request.get_json()
+        
+        product_id_str = data.get('product_id')
+        if not product_id_str:
+            return jsonify({'error': 'Product ID is required'}), 400
+        
+        product_id = safe_object_id(product_id_str)
+        if not product_id:
+            return jsonify({'error': 'Invalid product ID'}), 400
+        
+        product = products_collection.find_one({'_id': product_id})
+        if not product:
+            return jsonify({'error': 'Product not found'}), 404
+        
+        # Calculate total amount
+        total_amount = product['price'] * data['quantity']
+        
+        # Create order
+        order_quantity = int(data['quantity'])
 
-    if product['quantity'] < order_quantity:
-        return jsonify({'error': 'Insufficient stock'}), 400
+        if product['quantity'] < order_quantity:
+            return jsonify({'error': 'Insufficient stock'}), 400
 
-    # Create order
-    order = {
-        'product_id': product_id,
-        'quantity': order_quantity,
-        'total_amount': product['price'] * order_quantity,
-        'created_at': datetime.utcnow()
-    }
+        # Create order
+        order = {
+            'product_id': product_id,
+            'quantity': order_quantity,
+            'total_amount': product['price'] * order_quantity,
+            'created_at': datetime.utcnow()
+        }
 
-    result = orders_collection.insert_one(order)
-    order['_id'] = result.inserted_id
+        result = orders_collection.insert_one(order)
+        order['_id'] = result.inserted_id
 
-    # Update product quantity
-    products_collection.update_one(
-        {'_id': product_id},
-        {'$inc': {'quantity': -order_quantity}}
-    )
+        # Update product quantity
+        products_collection.update_one(
+            {'_id': product_id},
+            {'$inc': {'quantity': -order_quantity}}
+        )
 
-    # Optional customer link
-    customer_id_str = data.get('customer_id')
-    customer = None
-    if customer_id_str:
-        customer_id = safe_object_id(customer_id_str)
-        if customer_id:
-            customer = customers_collection.find_one({'_id': customer_id})
-            if customer:
-                link = {
-                    'order_id': order['_id'],
-                    'customer_id': customer_id,
-                    'created_at': datetime.utcnow()
-                }
-                order_customers_collection.insert_one(link)
+        # Optional customer link
+        customer_id_str = data.get('customer_id')
+        customer = None
+        if customer_id_str:
+            customer_id = safe_object_id(customer_id_str)
+            if customer_id:
+                customer = customers_collection.find_one({'_id': customer_id})
+                if customer:
+                    link = {
+                        'order_id': order['_id'],
+                        'customer_id': customer_id,
+                        'created_at': datetime.utcnow()
+                    }
+                    order_customers_collection.insert_one(link)
 
-    # Enrich response
-    product = products_collection.find_one({'_id': product_id})
-    resp = serialize_id(order)
-    resp['product_name'] = product['name']
-    if customer_id_str and customer:
-        resp['customer_id'] = customer_id_str
-        resp['customer_name'] = customer['name']
+        # Enrich response
+        product = products_collection.find_one({'_id': product_id})
+        resp = serialize_id(order)
+        resp['product_name'] = product['name']
+        if customer_id_str and customer:
+            resp['customer_id'] = customer_id_str
+            resp['customer_name'] = customer['name']
 
-    return jsonify(resp), 201
+        return jsonify(resp), 201
+        
+    except Exception as e:
+        print(f"Error creating order: {str(e)}")  # Server-side logging
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 @app.route('/api/orders/<order_id>', methods=['DELETE'])
 def delete_order(order_id):
