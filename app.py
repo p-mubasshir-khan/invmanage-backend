@@ -199,6 +199,38 @@ def create_order():
     total_amount = product['price'] * data['quantity']
     
     # Create order
+    order_quantity = int(data['quantity'])
+
+if product['quantity'] < order_quantity:
+    return jsonify({'error': 'Insufficient stock'}), 400
+
+# Create order
+order = {
+    'product_id': product_id,
+    'quantity': order_quantity,
+    'total_amount': product['price'] * order_quantity,
+    'created_at': datetime.utcnow()
+}
+
+result = orders_collection.insert_one(order)
+order['_id'] = result.inserted_id
+
+# Update product quantity
+products_collection.update_one(
+    {'_id': product_id},
+    {'$inc': {'quantity': -order_quantity}}
+)
+
+# Enrich response
+product = products_collection.find_one({'_id': product_id})
+resp = serialize_id(order)
+resp['product_name'] = product['name']
+if customer_id_str and customer:
+    resp['customer_id'] = customer_id_str
+    resp['customer_name'] = customer['name']
+
+return jsonify(resp), 201
+
     order = {
         'product_id': product_id,
         'quantity': data['quantity'],
@@ -209,11 +241,6 @@ def create_order():
     result = orders_collection.insert_one(order)
     order['_id'] = result.inserted_id
     
-    # Update product quantity
-    products_collection.update_one(
-        {'_id': product_id},
-        {'$inc': {'quantity': -data['quantity']}}
-    )
     
     # Optional customer link
     customer_id_str = data.get('customer_id')
