@@ -262,11 +262,9 @@ def delete_order(order_id):
     if not order:
         return jsonify({'error': 'Order not found'}), 404
     
-    # Restore product quantity
-    products_collection.update_one(
-        {'_id': order['product_id']},
-        {'$inc': {'quantity': order['quantity']}}
-    )
+    # IMPORTANT: Do NOT restore product quantity when deleting orders
+    # This would create phantom inventory since the products were already physically given to the customer
+    # The order deletion should only remove the order record, not affect inventory levels
     
     # Delete customer link if exists
     order_customers_collection.delete_one({'order_id': object_id})
