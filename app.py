@@ -2,7 +2,12 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient
 from bson.objectid import ObjectId
+from datetime import datetime
 import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Flask app
 app = Flask(__name__)
@@ -12,10 +17,7 @@ CORS(app, origins=["https://invmanage-frontend.vercel.app"], methods=["GET", "PO
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "fallbacksecret")
 
 # MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI")
-if not MONGO_URI:
-    raise Exception("❌ MONGO_URI not set in environment variables")
-
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://khansrmap_db_user:khan_8415@cluster0.mciv3wh.mongodb.net/")
 client = MongoClient(MONGO_URI)
 db = client["invmanage"]
 
@@ -27,6 +29,7 @@ customers_collection = db.customers
 suppliers_collection = db.suppliers
 order_customers_collection = db.order_customers
 
+# Enable CORS for all origins (for local development)
 CORS(app)
 
 # Helper function to convert ObjectId to string
