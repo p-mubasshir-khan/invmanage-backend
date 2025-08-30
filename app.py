@@ -142,7 +142,7 @@ def delete_product(product_id):
 # Order routes
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
-    orders = list(orders_collection.find().sort('created_at', -1))
+    orders = list(orders_collection.find().sort('order_number', -1))
     
     # Get all product IDs and customer IDs for efficient lookup
     product_ids = [order['product_id'] for order in orders]
@@ -168,6 +168,7 @@ def get_orders():
         enriched_order = {
             'id': order_str_id,
             '_id': order_str_id,  # Keep both for frontend compatibility
+            'order_number': order.get('order_number', 0),  # Include permanent order number
             'product_id': str(order['product_id']),
             'product_name': product['name'] if product else 'Unknown Product',
             'quantity': order['quantity'],
@@ -206,8 +207,13 @@ def create_order():
         if product['quantity'] < order_quantity:
             return jsonify({'error': 'Insufficient stock'}), 400
 
+        # Generate unique order number
+        last_order = orders_collection.find_one(sort=[('order_number', -1)])
+        next_order_number = 1 if not last_order else last_order.get('order_number', 0) + 1
+
         # Create order
         order = {
+            'order_number': next_order_number,  # Permanent, unique order number
             'product_id': product_id,
             'quantity': order_quantity,
             'total_amount': product['price'] * order_quantity,
@@ -281,7 +287,7 @@ def get_dashboard():
     low_stock_products = products_collection.count_documents({
         '$expr': {'$lt': ['$quantity', '$reorder_threshold']}
     })
-    recent_orders = list(orders_collection.find().sort('created_at', -1).limit(5))
+    recent_orders = list(orders_collection.find().sort('order_number', -1).limit(5))  # Sort by order number
     
     # Enrich recent orders with product names
     enriched_recent_orders = []
@@ -289,6 +295,7 @@ def get_dashboard():
         product = products_collection.find_one({'_id': order['product_id']})
         enriched_recent_orders.append({
             'id': str(order['_id']),
+            'order_number': order.get('order_number', 0),  # Include order number
             'product_name': product['name'] if product else 'Unknown Product',
             'quantity': order['quantity'],
             'total_amount': order['total_amount'],
