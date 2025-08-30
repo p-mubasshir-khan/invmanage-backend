@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient
+from bson.objectid import ObjectId
 import os
 
 # Flask app
@@ -71,15 +72,16 @@ def login():
     return jsonify({"message": "Login successful"}), 200
 
 # ===========================
-# PRODUCT ROUTES (CRUD)
+# PRODUCT ROUTES (CRUD with _id)
 # ===========================
 @app.route("/api/products", methods=["GET"])
 def get_products():
-    products = list(products_collection.find({}, {"_id": 0}))
-    # Ensure reorderThreshold key exists for frontend
-    for p in products:
+    products = []
+    for p in products_collection.find({}):
+        p["_id"] = str(p["_id"])
         if "reorderThreshold" not in p:
-            p["reorderThreshold"] = None
+            p["reorderThreshold"] = ''
+        products.append(p)
     return jsonify(products), 200
 
 @app.route("/api/products", methods=["POST"])
@@ -102,8 +104,8 @@ def add_product():
     products_collection.insert_one(product)
     return jsonify({"message": "Product added successfully"}), 201
 
-@app.route("/api/products/<string:name>", methods=["PUT"])
-def update_product(name):
+@app.route("/api/products/<string:product_id>", methods=["PUT"])
+def update_product(product_id):
     data = request.get_json()
     updated_data = {}
 
@@ -117,21 +119,27 @@ def update_product(name):
     if not updated_data:
         return jsonify({"error": "No fields to update"}), 400
 
-    result = products_collection.update_one({"name": name}, {"$set": updated_data})
+    try:
+        result = products_collection.update_one({"_id": ObjectId(product_id)}, {"$set": updated_data})
+        if result.matched_count == 0:
+            return jsonify({"error": "Product not found"}), 404
+        updated_product = products_collection.find_one({"_id": ObjectId(product_id)})
+        updated_product["_id"] = str(updated_product["_id"])
+        return jsonify(updated_product), 200
+    except Exception as e:
+        app.logger.error(f"Error updating product: {e}")
+        return jsonify({"error": "Failed to update product"}), 500
 
-    if result.matched_count == 0:
-        return jsonify({"error": "Product not found"}), 404
-
-    return jsonify({"message": "Product updated successfully"}), 200
-
-@app.route("/api/products/<string:name>", methods=["DELETE"])
-def delete_product(name):
-    result = products_collection.delete_one({"name": name})
-
-    if result.deleted_count == 0:
-        return jsonify({"error": "Product not found"}), 404
-
-    return jsonify({"message": "Product deleted successfully"}), 200
+@app.route("/api/products/<string:product_id>", methods=["DELETE"])
+def delete_product(product_id):
+    try:
+        result = products_collection.delete_one({"_id": ObjectId(product_id)})
+        if result.deleted_count == 0:
+            return jsonify({"error": "Product not found"}), 404
+        return jsonify({"message": "Product deleted successfully"}), 200
+    except Exception as e:
+        app.logger.error(f"Error deleting product: {e}")
+        return jsonify({"error": "Failed to delete product"}), 500
 
 # ===========================
 # CUSTOMER ROUTES
