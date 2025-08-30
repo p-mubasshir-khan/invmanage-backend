@@ -220,7 +220,7 @@ def delete_order(order_id):
 
 # ------------------ DASHBOARD ------------------
 @app.route('/api/dashboard', methods=['GET'])
-def get_dashboard():
+def dashboard_summary():   # renamed from get_dashboard
     total_products = products_collection.count_documents({})
     low_stock_products = products_collection.count_documents({'$expr': {'$lt': ['$quantity', '$reorder_threshold']}})
     recent_orders = list(orders_collection.find().sort('created_at', -1).limit(5))
@@ -239,6 +239,7 @@ def get_dashboard():
         'low_stock_count': low_stock_products,
         'recent_orders': enriched_recent_orders
     })
+
 
 @app.route('/api/dashboard/low-stock', methods=['GET'])
 def get_low_stock_products():
