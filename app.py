@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient
@@ -11,7 +12,13 @@ load_dotenv()
 
 # Flask app
 app = Flask(__name__)
-CORS(app, origins=["https://invmanage-frontend.vercel.app"], methods=["GET", "POST", "PUT", "DELETE"])
+
+# CORS configuration - allow both development and production origins
+CORS(app, origins=[
+    "https://invmanage-frontend.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:5000"
+], methods=["GET", "POST", "PUT", "DELETE"])
 
 # Secret Key
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "fallbacksecret")
@@ -21,16 +28,12 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://khansrmap_db_user:khan_8415@cl
 client = MongoClient(MONGO_URI)
 db = client["invmanage"]
 
-
 # Collections
 products_collection = db.products
 orders_collection = db.orders
 customers_collection = db.customers
 suppliers_collection = db.suppliers
 order_customers_collection = db.order_customers
-
-# Enable CORS for all origins (for local development)
-CORS(app)
 
 # Helper function to convert ObjectId to string
 def serialize_id(obj):
@@ -44,6 +47,18 @@ def serialize_id(obj):
             elif isinstance(value, dict):
                 serialize_id(value)
     return obj
+
+# Helper function to safely convert string to ObjectId
+def safe_object_id(id_value):
+    try:
+        if isinstance(id_value, str):
+            return ObjectId(id_value)
+        elif isinstance(id_value, int):
+            # Handle case where frontend sends integer ID
+            return ObjectId(str(id_value))
+        return id_value
+    except:
+        return None
 
 # Hardcoded admin credentials
 ADMIN_USERNAME = "admin"
@@ -83,9 +98,8 @@ def create_product():
 
 @app.route('/api/products/<product_id>', methods=['PUT'])
 def update_product(product_id):
-    try:
-        object_id = ObjectId(product_id)
-    except:
+    object_id = safe_object_id(product_id)
+    if not object_id:
         return jsonify({'error': 'Invalid product ID'}), 400
     
     data = request.get_json()
@@ -110,9 +124,8 @@ def update_product(product_id):
 
 @app.route('/api/products/<product_id>', methods=['DELETE'])
 def delete_product(product_id):
-    try:
-        object_id = ObjectId(product_id)
-    except:
+    object_id = safe_object_id(product_id)
+    if not object_id:
         return jsonify({'error': 'Invalid product ID'}), 400
     
     result = products_collection.delete_one({'_id': object_id})
@@ -150,6 +163,7 @@ def get_orders():
         
         enriched_order = {
             'id': order_str_id,
+            '_id': order_str_id,  # Keep both for frontend compatibility
             'product_id': str(order['product_id']),
             'product_name': product['name'] if product else 'Unknown Product',
             'quantity': order['quantity'],
@@ -166,9 +180,12 @@ def get_orders():
 def create_order():
     data = request.get_json()
     
-    try:
-        product_id = ObjectId(data['product_id'])
-    except:
+    product_id_str = data.get('product_id')
+    if not product_id_str:
+        return jsonify({'error': 'Product ID is required'}), 400
+    
+    product_id = safe_object_id(product_id_str)
+    if not product_id:
         return jsonify({'error': 'Invalid product ID'}), 400
     
     product = products_collection.find_one({'_id': product_id})
@@ -199,25 +216,26 @@ def create_order():
     )
     
     # Optional customer link
-    customer_id = data.get('customer_id')
-    if customer_id:
-        try:
-            customer_object_id = ObjectId(customer_id)
-            customer = customers_collection.find_one({'_id': customer_object_id})
+    customer_id_str = data.get('customer_id')
+    if customer_id_str:
+        customer_id = safe_object_id(customer_id_str)
+        if customer_id:
+            customer = customers_collection.find_one({'_id': customer_id})
             if customer:
                 link = {
                     'order_id': order['_id'],
-                    'customer_id': customer_object_id,
+                    'customer_id': customer_id,
                     'created_at': datetime.utcnow()
                 }
                 order_customers_collection.insert_one(link)
-        except:
-            pass  # Invalid customer ID, continue without linking
+        else:
+            # Invalid customer ID, continue without linking
+            pass
     
     # Build response
     resp = serialize_id(order)
-    if customer_id:
-        resp['customer_id'] = customer_id
+    if customer_id_str:
+        resp['customer_id'] = customer_id_str
         if customer:
             resp['customer_name'] = customer['name']
     
@@ -225,9 +243,8 @@ def create_order():
 
 @app.route('/api/orders/<order_id>', methods=['DELETE'])
 def delete_order(order_id):
-    try:
-        object_id = ObjectId(order_id)
-    except:
+    object_id = safe_object_id(order_id)
+    if not object_id:
         return jsonify({'error': 'Invalid order ID'}), 400
     
     order = orders_collection.find_one({'_id': object_id})
@@ -402,9 +419,8 @@ def get_customers():
 
 @app.route('/api/customers/<customer_id>', methods=['GET'])
 def get_customer(customer_id):
-    try:
-        object_id = ObjectId(customer_id)
-    except:
+    object_id = safe_object_id(customer_id)
+    if not object_id:
         return jsonify({'error': 'Invalid customer ID'}), 400
     
     customer = customers_collection.find_one({'_id': object_id})
@@ -428,9 +444,8 @@ def create_customer():
 
 @app.route('/api/customers/<customer_id>', methods=['PUT'])
 def update_customer(customer_id):
-    try:
-        object_id = ObjectId(customer_id)
-    except:
+    object_id = safe_object_id(customer_id)
+    if not object_id:
         return jsonify({'error': 'Invalid customer ID'}), 400
     
     data = request.get_json()
@@ -454,9 +469,8 @@ def update_customer(customer_id):
 
 @app.route('/api/customers/<customer_id>', methods=['DELETE'])
 def delete_customer(customer_id):
-    try:
-        object_id = ObjectId(customer_id)
-    except:
+    object_id = safe_object_id(customer_id)
+    if not object_id:
         return jsonify({'error': 'Invalid customer ID'}), 400
     
     result = customers_collection.delete_one({'_id': object_id})
@@ -474,9 +488,8 @@ def get_suppliers():
 
 @app.route('/api/suppliers/<supplier_id>', methods=['GET'])
 def get_supplier(supplier_id):
-    try:
-        object_id = ObjectId(supplier_id)
-    except:
+    object_id = safe_object_id(supplier_id)
+    if not object_id:
         return jsonify({'error': 'Invalid supplier ID'}), 400
     
     supplier = suppliers_collection.find_one({'_id': object_id})
@@ -500,9 +513,8 @@ def create_supplier():
 
 @app.route('/api/suppliers/<supplier_id>', methods=['PUT'])
 def update_supplier(supplier_id):
-    try:
-        object_id = ObjectId(supplier_id)
-    except:
+    object_id = safe_object_id(supplier_id)
+    if not object_id:
         return jsonify({'error': 'Invalid supplier ID'}), 400
     
     data = request.get_json()
@@ -526,9 +538,8 @@ def update_supplier(supplier_id):
 
 @app.route('/api/suppliers/<supplier_id>', methods=['DELETE'])
 def delete_supplier(supplier_id):
-    try:
-        object_id = ObjectId(supplier_id)
-    except:
+    object_id = safe_object_id(supplier_id)
+    if not object_id:
         return jsonify({'error': 'Invalid supplier ID'}), 400
     
     result = suppliers_collection.delete_one({'_id': object_id})
@@ -538,105 +549,5 @@ def delete_supplier(supplier_id):
     
     return jsonify({'message': 'Supplier deleted successfully'})
 
-if __name__ == '__main__':
-    # Seed some products if database is empty
-    if products_collection.count_documents({}) == 0:
-        seed_products = [
-            {'name': 'Laptop', 'quantity': 15, 'price': 999.99, 'reorder_threshold': 10},
-            {'name': 'Mouse', 'quantity': 5, 'price': 25.99, 'reorder_threshold': 10},
-            {'name': 'Keyboard', 'quantity': 8, 'price': 75.50, 'reorder_threshold': 10},
-            {'name': 'Monitor', 'quantity': 12, 'price': 299.99, 'reorder_threshold': 10},
-            {'name': 'Headphones', 'quantity': 3, 'price': 89.99, 'reorder_threshold': 10},
-        ]
-        for product in seed_products:
-            product['created_at'] = datetime.utcnow()
-            products_collection.insert_one(product)
-        print("Seed products added to database!")
-
-        # Ensure additional demo products exist
-        additional_products = [
-            {'name': 'Smartphone', 'quantity': 20, 'price': 599.99, 'reorder_threshold': 10},
-            {'name': 'Tablet', 'quantity': 10, 'price': 399.99, 'reorder_threshold': 8},
-            {'name': 'Printer', 'quantity': 6, 'price': 199.99, 'reorder_threshold': 4},
-            {'name': 'USB-C Cable', 'quantity': 50, 'price': 9.99, 'reorder_threshold': 25},
-            {'name': 'External Hard Drive', 'quantity': 14, 'price': 129.99, 'reorder_threshold': 6},
-            {'name': 'Webcam', 'quantity': 18, 'price': 59.99, 'reorder_threshold': 8},
-            {'name': 'Wireless Router', 'quantity': 9, 'price': 149.99, 'reorder_threshold': 5},
-        ]
-        for p in additional_products:
-            p['created_at'] = datetime.utcnow()
-            products_collection.insert_one(p)
-        print("Additional demo products added to database!")
-    
-    # Seed some customers if database is empty
-    if customers_collection.count_documents({}) == 0:
-        seed_customers = [
-            {'name': 'John Doe', 'contact': 'john@email.com', 'address': '123 Main St, City, State'},
-            {'name': 'Jane Smith', 'contact': 'jane@email.com', 'address': '456 Oak Ave, Town, State'},
-            {'name': 'Bob Johnson', 'contact': 'bob@email.com', 'address': '789 Pine Rd, Village, State'},
-        ]
-        for customer in seed_customers:
-            customer['created_at'] = datetime.utcnow()
-            customers_collection.insert_one(customer)
-        print("Seed customers added to database!")
-    
-    # Seed some suppliers if database is empty
-    if suppliers_collection.count_documents({}) == 0:
-        seed_suppliers = [
-            {'name': 'Tech Supplies Inc', 'contact': 'sales@techsupplies.com', 'address': '100 Tech Blvd, Tech City, State'},
-            {'name': 'Office Equipment Co', 'contact': 'info@officeequip.com', 'address': '200 Office Dr, Business Town, State'},
-            {'name': 'Computer Parts Ltd', 'contact': 'orders@computerparts.com', 'address': '300 Hardware Way, Parts City, State'},
-        ]
-        for supplier in seed_suppliers:
-            supplier['created_at'] = datetime.utcnow()
-            suppliers_collection.insert_one(supplier)
-        print("Seed suppliers added to database!")
-    
-    # Seed some sample orders if database is empty
-    if orders_collection.count_documents({}) == 0:
-        # Get products for creating orders
-        laptop = products_collection.find_one({'name': 'Laptop'})
-        mouse = products_collection.find_one({'name': 'Mouse'})
-        keyboard = products_collection.find_one({'name': 'Keyboard'})
-        monitor = products_collection.find_one({'name': 'Monitor'})
-        headphones = products_collection.find_one({'name': 'Headphones'})
-        
-        if laptop and mouse and keyboard and monitor and headphones:
-            seed_orders = [
-                {'product_id': laptop['_id'], 'quantity': 2, 'total_amount': laptop['price'] * 2},
-                {'product_id': mouse['_id'], 'quantity': 5, 'total_amount': mouse['price'] * 5},
-                {'product_id': keyboard['_id'], 'quantity': 3, 'total_amount': keyboard['price'] * 3},
-                {'product_id': monitor['_id'], 'quantity': 1, 'total_amount': monitor['price'] * 1},
-                {'product_id': headphones['_id'], 'quantity': 2, 'total_amount': headphones['price'] * 2},
-                {'product_id': laptop['_id'], 'quantity': 1, 'total_amount': laptop['price'] * 1},
-                {'product_id': mouse['_id'], 'quantity': 3, 'total_amount': mouse['price'] * 3},
-            ]
-            
-            # Update product quantities
-            products_collection.update_one(
-                {'_id': laptop['_id']}, 
-                {'$inc': {'quantity': -3}}  # 2 + 1 orders
-            )
-            products_collection.update_one(
-                {'_id': mouse['_id']}, 
-                {'$inc': {'quantity': -8}}   # 5 + 3 orders
-            )
-            products_collection.update_one(
-                {'_id': keyboard['_id']}, 
-                {'$inc': {'quantity': -3}}
-            )
-            products_collection.update_one(
-                {'_id': monitor['_id']}, 
-                {'$inc': {'quantity': -1}}
-            )
-            products_collection.update_one(
-                {'_id': headphones['_id']}, 
-                {'$inc': {'quantity': -2}}
-            )
-            
-            for order in seed_orders:
-                order['created_at'] = datetime.utcnow()
-                orders_collection.insert_one(order)
-            print("Seed orders added to database!")
 
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
